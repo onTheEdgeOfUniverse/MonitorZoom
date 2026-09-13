@@ -39,7 +39,7 @@ function updateTabBadge(tabId, zoomFactor) {
 
   try {
     chrome.action.setBadgeText({ tabId, text: badgeText });
-    chrome.action.setBadgeBackgroundColor({ tabId, color: '#2563eb' });
+    chrome.action.setBadgeBackgroundColor({ tabId, color: '#18181b' });
   } catch (err) {
     // Ignore errors for discarded or closing tabs
   }

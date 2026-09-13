@@ -107,7 +107,7 @@ function generateIcon(size) {
   // Draw monitor outer frame
   for (let y = 0; y < s; y++) {
     for (let x = 0; x < s; x++) {
-      // Screen outer frame (blue gradient)
+      // Screen outer frame (sleek minimalist titanium / graphite)
       if (x >= monX1 && x <= monX2 && y >= monY1 && y <= monY2) {
         const dx = Math.min(x - monX1, monX2 - x);
         const dy = Math.min(y - monY1, monY2 - y);
@@ -115,10 +115,11 @@ function generateIcon(size) {
           const dist = Math.hypot(cornerR - dx, cornerR - dy);
           if (dist > cornerR) continue;
         }
+        // Neutral titanium gradient: #27272a to #18181b
         const t = (y - monY1) / (monY2 - monY1);
-        const r = Math.round(37 * (1 - t) + 29 * t);
-        const g = Math.round(99 * (1 - t) + 78 * t);
-        const b = Math.round(235 * (1 - t) + 216 * t);
+        const r = Math.round(39 * (1 - t) + 24 * t);
+        const g = Math.round(39 * (1 - t) + 24 * t);
+        const b = Math.round(42 * (1 - t) + 27 * t);
         setPixel(x, y, r, g, b, 255);
       }
 
@@ -126,7 +127,7 @@ function generateIcon(size) {
       const neckW = Math.max(2, Math.floor(s * 0.12));
       const neckLeft = Math.floor((s - neckW) / 2);
       if (x >= neckLeft && x <= neckLeft + neckW && y >= monY2 && y <= Math.floor(s * 0.85)) {
-        setPixel(x, y, 100, 116, 139, 255);
+        setPixel(x, y, 113, 113, 122, 255); // #71717a
       }
 
       // Stand base
@@ -135,12 +136,12 @@ function generateIcon(size) {
       const baseY1 = Math.floor(s * 0.83);
       const baseY2 = Math.floor(s * 0.92);
       if (x >= baseLeft && x <= baseLeft + baseW && y >= baseY1 && y <= baseY2) {
-        setPixel(x, y, 148, 163, 184, 255);
+        setPixel(x, y, 161, 161, 170, 255); // #a1a1aa
       }
     }
   }
 
-  // Inner screen area (dark navy/indigo)
+  // Inner screen area (matte ink #09090b)
   const bezel = Math.max(1, Math.floor(s * 0.07));
   const scrX1 = monX1 + bezel;
   const scrY1 = monY1 + bezel;
@@ -149,11 +150,11 @@ function generateIcon(size) {
 
   for (let y = scrY1; y <= scrY2; y++) {
     for (let x = scrX1; x <= scrX2; x++) {
-      setPixel(x, y, 15, 23, 42, 255); // #0f172a
+      setPixel(x, y, 18, 18, 21, 255); // #121215
     }
   }
 
-  // Magnifying glass / zoom icon inside screen
+  // Magnifying glass / zoom icon inside screen (clean crisp minimalist white)
   const cx = Math.floor(s * 0.44);
   const cy = Math.floor(s * 0.38);
   const radius = Math.max(2, Math.floor(s * 0.18));
@@ -164,7 +165,7 @@ function generateIcon(size) {
       const dist = Math.hypot(x - cx, y - cy);
       // Ring
       if (Math.abs(dist - radius) <= stroke / 2) {
-        setPixel(x, y, 56, 189, 248, 255); // Sky blue #38bdf8
+        setPixel(x, y, 244, 244, 246, 255); // Clean white #f4f4f6
       }
 
       // Handle of magnifier
@@ -172,7 +173,7 @@ function generateIcon(size) {
       const hy = y - (cy + radius * 0.7);
       const handleLen = radius * 0.85;
       if (hx >= 0 && hy >= 0 && Math.abs(hx - hy) <= stroke / 1.5 && Math.hypot(hx, hy) <= handleLen) {
-        setPixel(x, y, 56, 189, 248, 255);
+        setPixel(x, y, 244, 244, 246, 255);
       }
 
       // Plus symbol (+) inside the magnifying glass
@@ -182,7 +183,7 @@ function generateIcon(size) {
         const inH = Math.abs(x - cx) <= plusSize && Math.abs(y - cy) <= plusThick / 2;
         const inV = Math.abs(y - cy) <= plusSize && Math.abs(x - cx) <= plusThick / 2;
         if (inH || inV) {
-          setPixel(x, y, 255, 255, 255, 255); // White plus
+          setPixel(x, y, 244, 244, 246, 255);
         }
       }
     }
