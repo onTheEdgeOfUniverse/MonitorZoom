@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MonitorZoom</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-brand">
+        <img src="../icons/icon32.png" alt="MonitorZoom" class="logo">
+        <div>
+          <h1 class="title">MonitorZoom</h1>
+          <span class="subtitle">Display-Aware Zoom</span>
+        </div>
+      </div>
+      <button id="open-options-btn" class="icon-btn" title="Open Settings & Rules Dashboard" aria-label="Settings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+    </header>
+
+    <!-- Restricted / Internal Warning State -->
+    <div id="restricted-banner" class="banner banner-warning hidden">
+      <div class="banner-icon">⚠️</div>
+      <div class="banner-text">
+        <strong>Browser System Page</strong>
+        <p>Chrome restricts extensions from modifying zoom on internal pages.</p>
+      </div>
+    </div>
+
+    <!-- Active Context Section -->
+    <div id="active-content" class="content-section">
+      <!-- Site & Monitor Info Card -->
+      <div class="info-card">
+        <div class="info-row">
+          <div class="info-label">Website</div>
+          <div id="site-key-display" class="info-value font-mono">--</div>
+        </div>
+        <div class="divider"></div>
+        <div class="info-row">
+          <div class="info-label">Active Monitor</div>
+          <div class="monitor-badge-container">
+            <span id="monitor-name-display" class="monitor-badge">Detecting...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Zoom Controller -->
+      <div class="zoom-card">
+        <div class="zoom-header">
+          <span class="zoom-label">Current Zoom</span>
+          <span id="source-badge" class="source-badge">Saved for Screen</span>
+        </div>
+
+        <div class="zoom-control-row">
+          <button id="zoom-dec-btn" class="zoom-btn" title="Decrease Zoom (-10%)" aria-label="Decrease Zoom">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+
+          <div class="zoom-value-container">
+            <span id="zoom-percentage" class="zoom-value">100%</span>
+          </div>
+
+          <button id="zoom-inc-btn" class="zoom-btn" title="Increase Zoom (+10%)" aria-label="Increase Zoom">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Preset Pills -->
+        <div class="preset-container">
+          <button class="preset-pill" data-factor="0.75">75%</button>
+          <button class="preset-pill" data-factor="0.90">90%</button>
+          <button class="preset-pill" data-factor="1.00">100%</button>
+          <button class="preset-pill" data-factor="1.10">110%</button>
+          <button class="preset-pill" data-factor="1.25">125%</button>
+          <button class="preset-pill" data-factor="1.50">150%</button>
+          <button class="preset-pill" data-factor="1.75">175%</button>
+          <button class="preset-pill" data-factor="2.00">200%</button>
+        </div>
+
+        <div class="actions-row">
+          <button id="reset-zoom-btn" class="secondary-btn" title="Reset to 100% or monitor default">
+            Reset Rule
+          </button>
+          <button id="sync-all-btn" class="secondary-btn" title="Apply this zoom level to all connected monitors">
+            Sync to All Monitors
+          </button>
+        </div>
+      </div>
+
+      <!-- Multi-Monitor Overview Section -->
+      <div id="multi-monitor-section" class="multi-monitor-section">
+        <h3 class="section-title">All Connected Monitors</h3>
+        <div id="monitors-list" class="monitors-list">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span id="auto-apply-status" class="status-indicator">
+        <span class="status-dot"></span> Auto-switches on window drag
+      </span>
+      <a href="#" id="footer-dashboard-link" class="footer-link">Dashboard &rarr;</a>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
