@@ -1,12 +1,51 @@
 /**
  * MonitorZoom - Zoom Manager
  * Controls tab zoom manipulation, per-tab scope enforcement,
- * and programmatic feedback loop suppression.
+ * programmatic feedback loop suppression, and per-site navigation session tracking.
  */
+
+// Node.js CommonJS environment support for automated testing
+if (typeof module !== 'undefined' && module.exports) {
+  try {
+    const displayMgr = require('./display-manager.js');
+    const storageMgr = require('./storage-manager.js');
+    Object.assign(globalThis, displayMgr, storageMgr);
+  } catch (e) {
+    // Service worker environment ignores require
+  }
+}
 
 // Track programmatic zoom operations to ignore echo onZoomChange events
 // Map: tabId -> expectedZoomFactor
 const pendingProgrammaticZooms = new Map();
+
+// Track active site session per tab:
+// Map: tabId -> { siteKey: string, displayKey: string, lastAppliedZoom: number }
+const tabSiteSessions = new Map();
+
+/**
+ * Returns the active site session for a tab.
+ * @param {number} tabId
+ * @returns {{ siteKey: string, displayKey: string, lastAppliedZoom: number } | null}
+ */
+function getTabSession(tabId) {
+  return tabSiteSessions.get(tabId) || null;
+}
+
+/**
+ * Clears the active site session for a tab (e.g. when tab closes or navigates to restricted URL).
+ * @param {number} tabId
+ */
+function clearTabSession(tabId) {
+  tabSiteSessions.delete(tabId);
+}
+
+/**
+ * Resets all tab sessions (useful for tests or setting changes).
+ */
+function resetAllTabSessions() {
+  tabSiteSessions.clear();
+}
 
 /**
  * Checks if an echo zoom change event is from our own programmatic call.
@@ -47,34 +86,38 @@ function updateTabBadge(tabId, zoomFactor) {
 
 /**
  * Applies the appropriate monitor-specific zoom factor to a tab.
+ * Optimizes internal navigations so changes on a site apply once,
+ * and only re-triggers if there is an actual difference in the zoom ratio.
  *
  * @param {number} tabId
  * @param {number} [windowId]
  * @param {Object} [options]
  * @param {boolean} [options.force] Apply even if zoom matches current
+ * @returns {Promise<{applied: boolean, reason?: string, zoomFactor?: number}>}
  */
 async function applyMonitorZoomToTab(tabId, windowId, options = {}) {
-  if (typeof chrome === 'undefined' || !chrome.tabs) return;
+  if (typeof chrome === 'undefined' || !chrome.tabs) return { applied: false };
 
   try {
     const settings = await getSettings();
-    if (!settings.enabled) return;
+    if (!settings.enabled) return { applied: false, reason: 'disabled' };
 
     // 1. Get tab information
-    const tab = await new Promise((resolve, reject) => {
+    const tab = await new Promise((resolve) => {
       chrome.tabs.get(tabId, (t) => {
-        if (chrome.runtime.lastError || !t) return resolve(null);
+        if ((chrome.runtime && chrome.runtime.lastError) || !t) return resolve(null);
         resolve(t);
       });
     });
 
-    if (!tab || !tab.url) return;
+    if (!tab || !tab.url) return { applied: false, reason: 'no_tab' };
 
     const siteKey = getSiteKeyFromUrl(tab.url);
     if (!siteKey) {
-      // Restricted internal or system URL, clear badge and exit safely
+      // Restricted internal or system URL, clear badge and session
+      clearTabSession(tabId);
       updateTabBadge(tabId, 1.0);
-      return;
+      return { applied: false, reason: 'restricted_url' };
     }
 
     const winId = windowId || tab.windowId;
@@ -82,61 +125,95 @@ async function applyMonitorZoomToTab(tabId, windowId, options = {}) {
     // 2. Get window coordinates
     const win = await new Promise((resolve) => {
       chrome.windows.get(winId, (w) => {
-        if (chrome.runtime.lastError || !w) return resolve(null);
+        if ((chrome.runtime && chrome.runtime.lastError) || !w) return resolve(null);
         resolve(w);
       });
     });
 
-    if (!win) return;
+    if (!win) return { applied: false, reason: 'no_window' };
 
     // 3. Get displays and match window
     const displays = await getAllDisplays();
-    if (!displays || displays.length === 0) return;
+    if (!displays || displays.length === 0) return { applied: false, reason: 'no_displays' };
 
     // Update display metadata cache
     await recordDisplayMetadata(displays);
 
     const activeDisplay = findDisplayForWindow(win, displays);
-    if (!activeDisplay) return;
+    if (!activeDisplay) return { applied: false, reason: 'no_active_display' };
 
     const displayKey = getDisplayKey(activeDisplay);
     const displayFingerprint = getDisplayFingerprint(activeDisplay);
 
-    // 4. Look up effective zoom factor
+    // 4. Look up effective zoom factor for this site on this monitor
     const { zoomFactor } = await getEffectiveZoom(siteKey, displayKey, displayFingerprint);
 
-    // 5. Ensure tab zoom scope is 'per-tab' with 'automatic' mode
-    await new Promise((resolve) => {
-      chrome.tabs.setZoomSettings(tabId, { scope: 'per-tab', mode: 'automatic' }, () => {
-        resolve();
-      });
-    });
-
-    // 6. Check current zoom factor
+    // 5. Query current tab zoom
     const currentZoom = await new Promise((resolve) => {
       chrome.tabs.getZoom(tabId, (factor) => resolve(factor || 1.0));
     });
 
-    if (options.force || Math.abs(currentZoom - zoomFactor) >= 0.01) {
+    // Check if there is an actual difference in the zoom ratio
+    const hasDifference = Math.abs(currentZoom - zoomFactor) >= 0.01;
+
+    // 6. Check existing session for this tab
+    const session = tabSiteSessions.get(tabId);
+    const isSameSiteAndDisplay = Boolean(
+      session &&
+      session.siteKey === siteKey &&
+      session.displayKey === displayKey
+    );
+
+    // FEATURE: Changes on a site apply only once for all internal navigation,
+    // and are applied if there is a difference in the zoom ratio.
+    const onlyApplyOnDiff = settings.onlyApplyOnDifference !== false;
+
+    if (onlyApplyOnDiff && isSameSiteAndDisplay && !hasDifference && !options.force) {
+      // Already applied for this site on this monitor, and no difference in zoom ratio
+      if (settings.showBadge) {
+        updateTabBadge(tabId, zoomFactor);
+      }
+      return { applied: false, reason: 'same_site_no_difference', zoomFactor };
+    }
+
+    // 7. Apply zoom if difference exists or forced
+    if (hasDifference || options.force) {
       // Mark as pending to suppress echo event in onZoomChange
       pendingProgrammaticZooms.set(tabId, zoomFactor);
 
       await new Promise((resolve) => {
-        chrome.tabs.setZoom(tabId, zoomFactor, () => {
-          if (chrome.runtime.lastError) {
-            pendingProgrammaticZooms.delete(tabId);
-          }
-          resolve();
+        chrome.tabs.setZoomSettings(tabId, { scope: 'per-tab', mode: 'automatic' }, () => {
+          chrome.tabs.setZoom(tabId, zoomFactor, () => {
+            if (chrome.runtime && chrome.runtime.lastError) {
+              pendingProgrammaticZooms.delete(tabId);
+            }
+            resolve();
+          });
         });
+      });
+    } else if (!isSameSiteAndDisplay) {
+      // First time entering site: ensure per-tab scope is active
+      await new Promise((resolve) => {
+        chrome.tabs.setZoomSettings(tabId, { scope: 'per-tab', mode: 'automatic' }, resolve);
       });
     }
 
-    // 7. Update extension action badge
+    // 8. Record the active session for this tab
+    tabSiteSessions.set(tabId, {
+      siteKey,
+      displayKey,
+      lastAppliedZoom: zoomFactor
+    });
+
+    // 9. Update extension action badge
     if (settings.showBadge) {
       updateTabBadge(tabId, zoomFactor);
     }
+
+    return { applied: hasDifference || Boolean(options.force), zoomFactor };
   } catch (err) {
     console.error(`[MonitorZoom] Error applying zoom to tab ${tabId}:`, err);
+    return { applied: false, error: err.message };
   }
 }
 
@@ -160,7 +237,7 @@ async function handleTabZoomChanged(zoomChangeInfo) {
   try {
     const tab = await new Promise((resolve) => {
       chrome.tabs.get(tabId, (t) => {
-        if (chrome.runtime.lastError || !t) return resolve(null);
+        if ((chrome.runtime && chrome.runtime.lastError) || !t) return resolve(null);
         resolve(t);
       });
     });
@@ -172,7 +249,7 @@ async function handleTabZoomChanged(zoomChangeInfo) {
 
     const win = await new Promise((resolve) => {
       chrome.windows.get(tab.windowId, (w) => {
-        if (chrome.runtime.lastError || !w) return resolve(null);
+        if ((chrome.runtime && chrome.runtime.lastError) || !w) return resolve(null);
         resolve(w);
       });
     });
@@ -187,6 +264,13 @@ async function handleTabZoomChanged(zoomChangeInfo) {
 
     // Save the user's new preferred zoom ratio for this site on this monitor
     await saveSiteZoom(siteKey, displayKey, newZoomFactor);
+
+    // Update active tab session
+    tabSiteSessions.set(tabId, {
+      siteKey,
+      displayKey,
+      lastAppliedZoom: newZoomFactor
+    });
 
     if (settings.showBadge) {
       updateTabBadge(tabId, newZoomFactor);
@@ -211,6 +295,10 @@ async function handleTabZoomChanged(zoomChangeInfo) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     pendingProgrammaticZooms,
+    tabSiteSessions,
+    getTabSession,
+    clearTabSession,
+    resetAllTabSessions,
     isProgrammaticZoomChange,
     updateTabBadge,
     applyMonitorZoomToTab,

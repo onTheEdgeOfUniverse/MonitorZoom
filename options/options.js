@@ -27,6 +27,7 @@ const monitorsCardsGrid = document.getElementById('monitors-cards-grid');
 const settingEnabled = document.getElementById('setting-enabled');
 const settingAutoApply = document.getElementById('setting-auto-apply');
 const settingBadge = document.getElementById('setting-badge');
+const settingOnlyDiff = document.getElementById('setting-only-diff');
 const settingStepSize = document.getElementById('setting-step-size');
 
 // Backup Tab
@@ -287,6 +288,7 @@ function populateSettings() {
   settingEnabled.checked = s.enabled !== false;
   settingAutoApply.checked = s.autoApplyOnMove !== false;
   settingBadge.checked = s.showBadge !== false;
+  settingOnlyDiff.checked = s.onlyApplyOnDifference !== false;
   settingStepSize.value = (s.stepSize || 0.10).toFixed(2);
 }
 
@@ -295,6 +297,7 @@ async function handleSettingChange() {
     enabled: settingEnabled.checked,
     autoApplyOnMove: settingAutoApply.checked,
     showBadge: settingBadge.checked,
+    onlyApplyOnDifference: settingOnlyDiff.checked,
     stepSize: parseFloat(settingStepSize.value)
   };
 
@@ -312,6 +315,7 @@ async function handleSettingChange() {
 settingEnabled.addEventListener('change', handleSettingChange);
 settingAutoApply.addEventListener('change', handleSettingChange);
 settingBadge.addEventListener('change', handleSettingChange);
+settingOnlyDiff.addEventListener('change', handleSettingChange);
 settingStepSize.addEventListener('change', handleSettingChange);
 
 // -------------------------------------------------------------

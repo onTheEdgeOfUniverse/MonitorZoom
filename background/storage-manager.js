@@ -7,7 +7,8 @@ const DEFAULT_SETTINGS = {
   enabled: true,
   autoApplyOnMove: true,
   stepSize: 0.1, // 10% increment/decrement
-  showBadge: true
+  showBadge: true,
+  onlyApplyOnDifference: true // Apply once per site navigation, only if ratio differs
 };
 
 const STORAGE_KEYS = {

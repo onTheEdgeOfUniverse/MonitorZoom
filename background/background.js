@@ -112,6 +112,12 @@ chrome.windows.onRemoved.addListener((windowId) => {
   }
 });
 
+// Tab closed cleanup
+chrome.tabs.onRemoved.addListener((tabId) => {
+  pendingProgrammaticZooms.delete(tabId);
+  clearTabSession(tabId);
+});
+
 // User manual zoom changes (via keyboard, trackpad pinch, or browser zoom controls)
 chrome.tabs.onZoomChange.addListener((zoomChangeInfo) => {
   handleTabZoomChanged(zoomChangeInfo);
@@ -202,6 +208,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
 
           if (tabId) {
+            // Update session tracking
+            tabSiteSessions.set(tabId, {
+              siteKey,
+              displayKey,
+              lastAppliedZoom: normalized
+            });
+
             // Suppress echo
             pendingProgrammaticZooms.set(tabId, normalized);
             await new Promise(resolve => {
@@ -222,6 +235,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             await deleteSiteZoom(siteKey, displayKey);
           }
 
+          if (tabId) {
+            clearTabSession(tabId);
+          }
+
           // Fallback to display default or 1.0
           const displays = await getAllDisplays();
           const targetDisplay = displays.find(d => getDisplayKey(d) === displayKey) || displays[0];
@@ -230,6 +247,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const effective = await getEffectiveZoom(siteKey, displayKey, displayFingerprint);
 
           if (tabId) {
+            tabSiteSessions.set(tabId, {
+              siteKey,
+              displayKey,
+              lastAppliedZoom: effective.zoomFactor
+            });
+
             pendingProgrammaticZooms.set(tabId, effective.zoomFactor);
             await new Promise(resolve => {
               chrome.tabs.setZoom(tabId, effective.zoomFactor, resolve);

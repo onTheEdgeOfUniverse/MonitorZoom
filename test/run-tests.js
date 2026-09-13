@@ -287,6 +287,157 @@ const storageManager = require('../background/storage-manager.js');
     assert.strictEqual(restoredZooms['github.com']['display-external-4k'], 1.50);
   });
 
+  // -------------------------------------------------------------
+  // Test 7: Apply Once Per Site Navigation & Difference-Only Logic
+  // -------------------------------------------------------------
+  console.log('\nTesting Apply Once Per Site Navigation & Difference-Only Logic:');
+
+  // Setup tab/window/display state for testing applyMonitorZoomToTab
+  const testTabState = {
+    id: 101,
+    url: 'https://github.com/torvalds',
+    windowId: 201,
+    zoomFactor: 1.0,
+    zoomSettings: null
+  };
+
+  let setZoomCallCount = 0;
+
+  global.chrome.tabs = {
+    get: (id, cb) => {
+      if (id === testTabState.id) {
+        cb({ id: testTabState.id, url: testTabState.url, windowId: testTabState.windowId });
+      } else {
+        cb(null);
+      }
+    },
+    getZoom: (id, cb) => {
+      cb(testTabState.zoomFactor);
+    },
+    setZoom: (id, factor, cb) => {
+      setZoomCallCount++;
+      testTabState.zoomFactor = factor;
+      if (cb) cb();
+    },
+    setZoomSettings: (id, settings, cb) => {
+      testTabState.zoomSettings = settings;
+      if (cb) cb();
+    }
+  };
+
+  global.chrome.windows = {
+    get: (id, cb) => {
+      // Window on Laptop Display (bounds: 0, 0, 1920, 1080)
+      cb({ id: 201, left: 100, top: 100, width: 1200, height: 800 });
+    }
+  };
+
+  global.chrome.system = {
+    display: {
+      getInfo: (cb) => {
+        cb([
+          { id: 'display-laptop', name: 'Built-in Display', isPrimary: true, bounds: { left: 0, top: 0, width: 1920, height: 1080 } },
+          { id: 'display-external-4k', name: 'Dell 4K Monitor', isPrimary: false, bounds: { left: 1920, top: 0, width: 3840, height: 2160 } }
+        ]);
+      }
+    }
+  };
+
+  global.chrome.action = {
+    setBadgeText: () => {},
+    setBadgeBackgroundColor: () => {}
+  };
+
+  global.chrome.runtime = {
+    lastError: null,
+    sendMessage: () => Promise.resolve()
+  };
+
+  const zoomManager = require('../background/zoom-manager.js');
+
+  await test('Initial site visit applies zoom when difference exists', async () => {
+    // Configure github.com on display-laptop to 1.25
+    await storageManager.saveSiteZoom('github.com', 'display-laptop', 1.25);
+
+    zoomManager.resetAllTabSessions();
+    setZoomCallCount = 0;
+    testTabState.url = 'https://github.com/torvalds';
+    testTabState.zoomFactor = 1.0; // Current is 1.0, target is 1.25
+
+    const res = await zoomManager.applyMonitorZoomToTab(testTabState.id, testTabState.windowId);
+    assert.strictEqual(res.applied, true);
+    assert.strictEqual(testTabState.zoomFactor, 1.25);
+    assert.strictEqual(setZoomCallCount, 1);
+
+    const session = zoomManager.getTabSession(testTabState.id);
+    assert.strictEqual(session.siteKey, 'github.com');
+    assert.strictEqual(session.displayKey, 'display-laptop');
+  });
+
+  await test('Internal navigation inside same site does NOT reapply when zoom ratio has no difference', async () => {
+    // User clicks internal link to https://github.com/torvalds/linux
+    testTabState.url = 'https://github.com/torvalds/linux';
+    // Current zoom is already 1.25
+    assert.strictEqual(testTabState.zoomFactor, 1.25);
+
+    const initialCallCount = setZoomCallCount;
+
+    const res = await zoomManager.applyMonitorZoomToTab(testTabState.id, testTabState.windowId);
+
+    // Should NOT reapply!
+    assert.strictEqual(res.applied, false);
+    assert.strictEqual(res.reason, 'same_site_no_difference');
+    // setZoom was not called again
+    assert.strictEqual(setZoomCallCount, initialCallCount);
+  });
+
+  await test('Internal navigation re-applies zoom if difference in zoom ratio occurs', async () => {
+    // Simulate browser navigation resetting zoom back to 1.0
+    testTabState.url = 'https://github.com/torvalds/linux/commits';
+    testTabState.zoomFactor = 1.0; // Differing ratio!
+
+    const prevCallCount = setZoomCallCount;
+
+    const res = await zoomManager.applyMonitorZoomToTab(testTabState.id, testTabState.windowId);
+
+    // Because ratio differed, change is applied!
+    assert.strictEqual(res.applied, true);
+    assert.strictEqual(testTabState.zoomFactor, 1.25);
+    assert.strictEqual(setZoomCallCount, prevCallCount + 1);
+  });
+
+  await test('Navigating to a different site re-evaluates and applies new site zoom', async () => {
+    // Configure stackoverflow.com on display-laptop to 0.90
+    await storageManager.saveSiteZoom('stackoverflow.com', 'display-laptop', 0.90);
+
+    testTabState.url = 'https://stackoverflow.com/questions/12345';
+    // Current zoom is 1.25 from github
+    testTabState.zoomFactor = 1.25;
+
+    const res = await zoomManager.applyMonitorZoomToTab(testTabState.id, testTabState.windowId);
+    assert.strictEqual(res.applied, true);
+    assert.strictEqual(testTabState.zoomFactor, 0.90);
+
+    const session = zoomManager.getTabSession(testTabState.id);
+    assert.strictEqual(session.siteKey, 'stackoverflow.com');
+  });
+
+  await test('Window moved to different monitor triggers zoom update for that monitor', async () => {
+    // Configure stackoverflow.com on 4K display to 1.50
+    await storageManager.saveSiteZoom('stackoverflow.com', 'display-external-4k', 1.50);
+
+    // Change window coordinates to 4K monitor (left: 2000)
+    global.chrome.windows.get = (id, cb) => {
+      cb({ id: 201, left: 2000, top: 100, width: 1400, height: 900 });
+    };
+
+    const res = await zoomManager.applyMonitorZoomToTab(testTabState.id, testTabState.windowId);
+    assert.strictEqual(res.applied, true);
+    assert.strictEqual(testTabState.zoomFactor, 1.50);
+
+    const session = zoomManager.getTabSession(testTabState.id);
+    assert.strictEqual(session.displayKey, 'display-external-4k');
+  });
 
   // -------------------------------------------------------------
   // Summary
@@ -299,4 +450,5 @@ const storageManager = require('../background/storage-manager.js');
     console.log('All tests passed successfully!\n');
   }
 })();
+
 
