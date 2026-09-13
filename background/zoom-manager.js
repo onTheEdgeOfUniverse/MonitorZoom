@@ -146,7 +146,8 @@ async function applyMonitorZoomToTab(tabId, windowId, options = {}) {
     const displayFingerprint = getDisplayFingerprint(activeDisplay);
 
     // 4. Look up effective zoom factor for this site on this monitor
-    const { zoomFactor } = await getEffectiveZoom(siteKey, displayKey, displayFingerprint);
+    const effective = await getEffectiveZoom(siteKey, displayKey, displayFingerprint);
+    const zoomFactor = effective.zoomFactor;
 
     // 5. Query current tab zoom
     const currentZoom = await new Promise((resolve) => {
@@ -155,6 +156,23 @@ async function applyMonitorZoomToTab(tabId, windowId, options = {}) {
 
     // Check if there is an actual difference in the zoom ratio
     const hasDifference = Math.abs(currentZoom - zoomFactor) >= 0.01;
+
+    // BUG FIX: Do NOT apply zoom on site load for unmanaged sites!
+    // If the site has no saved rule and the display has no default rule, leave the tab untouched.
+    if (!effective.hasExplicitRule && !options.force) {
+      if (settings.showBadge) {
+        updateTabBadge(tabId, currentZoom);
+      }
+      return { applied: false, reason: 'no_explicit_rule', zoomFactor: currentZoom };
+    }
+
+    // If applyOnSiteLoad is explicitly turned off in settings, skip onloaded trigger
+    if (options.trigger === 'onloaded' && settings.applyOnSiteLoad === false && !options.force) {
+      if (settings.showBadge) {
+        updateTabBadge(tabId, currentZoom);
+      }
+      return { applied: false, reason: 'apply_on_load_disabled', zoomFactor: currentZoom };
+    }
 
     // 6. Check existing session for this tab
     const session = tabSiteSessions.get(tabId);
@@ -176,6 +194,19 @@ async function applyMonitorZoomToTab(tabId, windowId, options = {}) {
       return { applied: false, reason: 'same_site_no_difference', zoomFactor };
     }
 
+    // If current zoom already matches target and not forced, record session and do not re-apply
+    if (!hasDifference && !options.force) {
+      tabSiteSessions.set(tabId, {
+        siteKey,
+        displayKey,
+        lastAppliedZoom: zoomFactor
+      });
+      if (settings.showBadge) {
+        updateTabBadge(tabId, zoomFactor);
+      }
+      return { applied: false, reason: 'already_at_target_zoom', zoomFactor };
+    }
+
     // 7. Apply zoom if difference exists or forced
     if (hasDifference || options.force) {
       // Mark as pending to suppress echo event in onZoomChange
@@ -190,11 +221,6 @@ async function applyMonitorZoomToTab(tabId, windowId, options = {}) {
             resolve();
           });
         });
-      });
-    } else if (!isSameSiteAndDisplay) {
-      // First time entering site: ensure per-tab scope is active
-      await new Promise((resolve) => {
-        chrome.tabs.setZoomSettings(tabId, { scope: 'per-tab', mode: 'automatic' }, resolve);
       });
     }
 

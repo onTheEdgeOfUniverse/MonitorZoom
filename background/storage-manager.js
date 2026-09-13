@@ -6,6 +6,7 @@
 const DEFAULT_SETTINGS = {
   enabled: true,
   autoApplyOnMove: true,
+  applyOnSiteLoad: true, // Apply saved zoom on site load (only for sites with saved rules)
   stepSize: 0.1, // 10% increment/decrement
   showBadge: true,
   onlyApplyOnDifference: true // Apply once per site navigation, only if ratio differs
@@ -117,24 +118,24 @@ async function getEffectiveZoom(siteKey, displayKey, displayFingerprint) {
   if (siteKey && siteZooms[siteKey]) {
     const siteDisplayMap = siteZooms[siteKey];
     if (typeof siteDisplayMap[displayKey] === 'number') {
-      return { zoomFactor: siteDisplayMap[displayKey], source: 'site' };
+      return { zoomFactor: siteDisplayMap[displayKey], source: 'site', hasExplicitRule: true };
     }
     // Fallback check: match by fingerprint if display ID rotated
     if (displayFingerprint && typeof siteDisplayMap[displayFingerprint] === 'number') {
-      return { zoomFactor: siteDisplayMap[displayFingerprint], source: 'site' };
+      return { zoomFactor: siteDisplayMap[displayFingerprint], source: 'site', hasExplicitRule: true };
     }
   }
 
   // 2. Check display default zoom
   if (displayKey && typeof displayDefaults[displayKey] === 'number') {
-    return { zoomFactor: displayDefaults[displayKey], source: 'display_default' };
+    return { zoomFactor: displayDefaults[displayKey], source: 'display_default', hasExplicitRule: true };
   }
   if (displayFingerprint && typeof displayDefaults[displayFingerprint] === 'number') {
-    return { zoomFactor: displayDefaults[displayFingerprint], source: 'display_default' };
+    return { zoomFactor: displayDefaults[displayFingerprint], source: 'display_default', hasExplicitRule: true };
   }
 
-  // 3. Fallback to standard 100% (1.0)
-  return { zoomFactor: 1.0, source: 'browser_default' };
+  // 3. Fallback to standard 100% (1.0) - No explicit rule saved
+  return { zoomFactor: 1.0, source: 'browser_default', hasExplicitRule: false };
 }
 
 /**

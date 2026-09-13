@@ -439,6 +439,57 @@ const storageManager = require('../background/storage-manager.js');
     assert.strictEqual(session.displayKey, 'display-external-4k');
   });
 
+  await test('Unmanaged site with no custom rule is left untouched on site load', async () => {
+    // Window on display-laptop (which has NO display default set)
+    global.chrome.windows.get = (id, cb) => {
+      cb({ id: 201, left: 100, top: 100, width: 1200, height: 800 });
+    };
+
+    // Navigate to a completely unmanaged site: wikipedia.org (no rule saved)
+    testTabState.url = 'https://wikipedia.org/wiki/Main_Page';
+    testTabState.zoomFactor = 1.10; // User's natural browser zoom
+
+    const callCountBefore = setZoomCallCount;
+    const res = await zoomManager.applyMonitorZoomToTab(testTabState.id, testTabState.windowId, { trigger: 'onloaded' });
+
+    // Must NOT touch the tab or overwrite zoom!
+    assert.strictEqual(res.applied, false);
+    assert.strictEqual(res.reason, 'no_explicit_rule');
+    assert.strictEqual(testTabState.zoomFactor, 1.10); // Untouched
+    assert.strictEqual(setZoomCallCount, callCountBefore); // No setZoom calls
+  });
+
+  await test('Managed site on load does not call setZoom if current zoom matches target', async () => {
+    // stackoverflow.com on display-laptop is 0.90
+    testTabState.url = 'https://stackoverflow.com/questions';
+    testTabState.zoomFactor = 0.90; // Already at target zoom
+
+    const callCountBefore = setZoomCallCount;
+    const res = await zoomManager.applyMonitorZoomToTab(testTabState.id, testTabState.windowId, { trigger: 'onloaded' });
+
+    assert.strictEqual(res.applied, false);
+    assert.strictEqual(res.reason, 'already_at_target_zoom');
+    assert.strictEqual(setZoomCallCount, callCountBefore);
+  });
+
+  await test('Skipping onloaded trigger when applyOnSiteLoad is turned off', async () => {
+    // Disable applyOnSiteLoad in settings
+    await storageManager.saveSettings({ applyOnSiteLoad: false });
+
+    testTabState.url = 'https://stackoverflow.com/tags';
+    testTabState.zoomFactor = 1.0; // Differs from target 1.50
+
+    const callCountBefore = setZoomCallCount;
+    const res = await zoomManager.applyMonitorZoomToTab(testTabState.id, testTabState.windowId, { trigger: 'onloaded' });
+
+    assert.strictEqual(res.applied, false);
+    assert.strictEqual(res.reason, 'apply_on_load_disabled');
+    assert.strictEqual(setZoomCallCount, callCountBefore);
+
+    // Restore setting
+    await storageManager.saveSettings({ applyOnSiteLoad: true });
+  });
+
   // -------------------------------------------------------------
   // Summary
   // -------------------------------------------------------------

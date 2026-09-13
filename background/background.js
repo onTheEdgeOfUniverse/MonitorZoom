@@ -74,10 +74,10 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   await recordDisplayMetadata(displays);
 });
 
-// Tab navigated or reloaded
+// Tab navigated or reloaded (runs on complete or url change, avoiding duplicate runs during loading)
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'loading' || changeInfo.url) {
-    applyMonitorZoomToTab(tabId, tab.windowId);
+  if (changeInfo.status === 'complete' || changeInfo.url) {
+    applyMonitorZoomToTab(tabId, tab.windowId, { trigger: 'onloaded' });
   }
 });
 

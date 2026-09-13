@@ -27,6 +27,7 @@ const monitorsCardsGrid = document.getElementById('monitors-cards-grid');
 const settingEnabled = document.getElementById('setting-enabled');
 const settingAutoApply = document.getElementById('setting-auto-apply');
 const settingBadge = document.getElementById('setting-badge');
+const settingApplyOnLoad = document.getElementById('setting-apply-on-load');
 const settingOnlyDiff = document.getElementById('setting-only-diff');
 const settingStepSize = document.getElementById('setting-step-size');
 
@@ -288,6 +289,7 @@ function populateSettings() {
   settingEnabled.checked = s.enabled !== false;
   settingAutoApply.checked = s.autoApplyOnMove !== false;
   settingBadge.checked = s.showBadge !== false;
+  settingApplyOnLoad.checked = s.applyOnSiteLoad !== false;
   settingOnlyDiff.checked = s.onlyApplyOnDifference !== false;
   settingStepSize.value = (s.stepSize || 0.10).toFixed(2);
 }
@@ -297,6 +299,7 @@ async function handleSettingChange() {
     enabled: settingEnabled.checked,
     autoApplyOnMove: settingAutoApply.checked,
     showBadge: settingBadge.checked,
+    applyOnSiteLoad: settingApplyOnLoad.checked,
     onlyApplyOnDifference: settingOnlyDiff.checked,
     stepSize: parseFloat(settingStepSize.value)
   };
@@ -315,6 +318,7 @@ async function handleSettingChange() {
 settingEnabled.addEventListener('change', handleSettingChange);
 settingAutoApply.addEventListener('change', handleSettingChange);
 settingBadge.addEventListener('change', handleSettingChange);
+settingApplyOnLoad.addEventListener('change', handleSettingChange);
 settingOnlyDiff.addEventListener('change', handleSettingChange);
 settingStepSize.addEventListener('change', handleSettingChange);
 
