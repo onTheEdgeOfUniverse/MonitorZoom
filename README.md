@@ -13,8 +13,9 @@ If you have a multi-monitor setup (for instance, an external 4K or 1440p monitor
 1. **Monitor-Aware Zoom Persistence**: Detects which monitor the active browser window is on using Chrome's Display and Window APIs.
 2. **Per-Tab Zoom Scope**: Uses Chrome's `per-tab` zoom isolation so tabs on different screens can have different zoom factors without conflicting.
 3. **Auto-Switching on Window Drag**: Automatically recalculates and applies the target monitor's zoom when you move a window from one screen to another.
-4. **Monitor Defaults**: Set a baseline default zoom for each monitor (e.g., 125% for 4K external display, 100% for built-in laptop screen).
-5. **Modern Popup & Dashboard**: Quick stepper buttons, preset pills (`75%`, `90%`, `100%`, `125%`, `150%`, `200%`), multi-monitor comparison cards, and full rule management.
+4. **Smart Navigation Optimization**: Applies zoom only once per site session on a tab, completely bypassing redundant re-applications during internal site navigations unless the zoom ratio actually differs.
+5. **Monitor Defaults**: Set a baseline default zoom for each monitor (e.g., 125% for 4K external display, 100% for built-in laptop screen).
+6. **Modern Minimalist Popup & Dashboard**: Quick stepper buttons, preset pills (`75%`, `90%`, `100%`, `125%`, `150%`, `200%`), multi-monitor comparison cards, and full rule management.
 
 ---
 
