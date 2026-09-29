@@ -174,6 +174,16 @@ async function applyMonitorZoomToTab(tabId, windowId, options = {}) {
       return { applied: false, reason: 'apply_on_load_disabled', zoomFactor: currentZoom };
     }
 
+    // Eagerly enforce per-tab zoom scope so Chrome never cross-propagates origin zoom to other windows/monitors
+    await new Promise((resolve) => {
+      chrome.tabs.setZoomSettings(tabId, { scope: 'per-tab', mode: 'automatic' }, () => {
+        if (chrome.runtime && chrome.runtime.lastError) {
+          // Ignore if tab closed or error
+        }
+        resolve();
+      });
+    });
+
     // 6. Check existing session for this tab
     const session = tabSiteSessions.get(tabId);
     const isSameSiteAndDisplay = Boolean(
@@ -213,13 +223,11 @@ async function applyMonitorZoomToTab(tabId, windowId, options = {}) {
       pendingProgrammaticZooms.set(tabId, zoomFactor);
 
       await new Promise((resolve) => {
-        chrome.tabs.setZoomSettings(tabId, { scope: 'per-tab', mode: 'automatic' }, () => {
-          chrome.tabs.setZoom(tabId, zoomFactor, () => {
-            if (chrome.runtime && chrome.runtime.lastError) {
-              pendingProgrammaticZooms.delete(tabId);
-            }
-            resolve();
-          });
+        chrome.tabs.setZoom(tabId, zoomFactor, () => {
+          if (chrome.runtime && chrome.runtime.lastError) {
+            pendingProgrammaticZooms.delete(tabId);
+          }
+          resolve();
         });
       });
     }
@@ -250,7 +258,12 @@ async function applyMonitorZoomToTab(tabId, windowId, options = {}) {
  * @param {Object} zoomChangeInfo { tabId, oldZoomFactor, newZoomFactor, zoomSettings }
  */
 async function handleTabZoomChanged(zoomChangeInfo) {
-  const { tabId, newZoomFactor } = zoomChangeInfo;
+  const { tabId, oldZoomFactor, newZoomFactor } = zoomChangeInfo;
+
+  // If zoom factor didn't actually change (e.g. only zoomSettings scope/mode changed)
+  if (typeof oldZoomFactor === 'number' && Math.abs(oldZoomFactor - newZoomFactor) < 0.001) {
+    return;
+  }
 
   // If this was an automated zoom change initiated by MonitorZoom, ignore it
   if (isProgrammaticZoomChange(tabId, newZoomFactor)) {
@@ -281,6 +294,13 @@ async function handleTabZoomChanged(zoomChangeInfo) {
     });
 
     if (!win) return;
+
+    // Discard zoom events from background/inactive tabs or unfocused windows.
+    // Manual user zoom (Ctrl + Plus/Minus, trackpad pinch, browser menu) only occurs in the active tab of the focused window.
+    // Passive events are native Chrome cross-window per-origin echoes and must not overwrite monitor settings.
+    if (!tab.active || !win.focused) {
+      return;
+    }
 
     const displays = await getAllDisplays();
     const activeDisplay = findDisplayForWindow(win, displays);

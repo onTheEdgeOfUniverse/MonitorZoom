@@ -86,6 +86,36 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
   applyMonitorZoomToTab(activeInfo.tabId, activeInfo.windowId);
 });
 
+// Window focus switched (e.g. clicking between monitor and laptop windows)
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (typeof chrome === 'undefined' || !chrome.windows) return;
+  if (!windowId || windowId === -1 || (chrome.windows.WINDOW_ID_NONE && windowId === chrome.windows.WINDOW_ID_NONE)) {
+    return;
+  }
+
+  try {
+    const [activeTab] = await new Promise((resolve) => {
+      chrome.tabs.query({ active: true, windowId }, (tabs) => {
+        if (chrome.runtime && chrome.runtime.lastError) return resolve([]);
+        resolve(tabs || []);
+      });
+    });
+
+    if (activeTab && activeTab.id) {
+      await applyMonitorZoomToTab(activeTab.id, windowId);
+    }
+  } catch (err) {
+    console.error('[MonitorZoom] Error in onFocusChanged:', err);
+  }
+});
+
+// Tab attached to a different window (e.g. dragged between windows or monitors)
+chrome.tabs.onAttached.addListener((tabId, attachInfo) => {
+  if (attachInfo && attachInfo.newWindowId) {
+    applyMonitorZoomToTab(tabId, attachInfo.newWindowId, { force: true });
+  }
+});
+
 // Window moved or resized (debounced)
 chrome.windows.onBoundsChanged.addListener((window) => {
   const windowId = window.id;
@@ -223,6 +253,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               });
             });
             updateTabBadge(tabId, normalized);
+          } else if (siteKey && displayKey) {
+            // Updated from Options page: find any open tabs of this site on this display and apply
+            try {
+              const displays = await getAllDisplays();
+              const windows = await new Promise(resolve => chrome.windows.getAll({ populate: true }, resolve));
+              for (const win of windows || []) {
+                const winDisplay = findDisplayForWindow(win, displays);
+                if (winDisplay && (getDisplayKey(winDisplay) === displayKey || getDisplayFingerprint(winDisplay) === displayKey)) {
+                  for (const t of win.tabs || []) {
+                    if (t.url && getSiteKeyFromUrl(t.url) === siteKey) {
+                      await applyMonitorZoomToTab(t.id, win.id, { force: true });
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              // Ignore background sync errors
+            }
           }
 
           sendResponse({ success: true, zoomFactor: normalized });
@@ -298,8 +346,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         case 'DELETE_SITE_RULE': {
-          const { siteKey, displayKey } = message;
-          await deleteSiteZoom(siteKey, displayKey);
+          const { siteKey, displayKey, displayKeys } = message;
+          await deleteSiteZoom(siteKey, displayKeys || displayKey);
           sendResponse({ success: true });
           break;
         }
@@ -319,6 +367,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'IMPORT_BACKUP': {
           const result = await importConfiguration(message.jsonStr);
           sendResponse(result);
+          break;
+        }
+
+        case 'SET_ALL_SITE_ZOOMS': {
+          await storageSet({ [STORAGE_KEYS.SITE_ZOOMS]: message.siteZooms });
+          sendResponse({ success: true });
           break;
         }
 

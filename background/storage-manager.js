@@ -134,8 +134,18 @@ async function getEffectiveZoom(siteKey, displayKey, displayFingerprint) {
     return { zoomFactor: displayDefaults[displayFingerprint], source: 'display_default', hasExplicitRule: true };
   }
 
-  // 3. Fallback to standard 100% (1.0) - No explicit rule saved
-  return { zoomFactor: 1.0, source: 'browser_default', hasExplicitRule: false };
+  // Check if this site has custom zoom rules on ANY display
+  const isSiteManaged = Boolean(siteKey && siteZooms[siteKey] && Object.keys(siteZooms[siteKey]).length > 0);
+
+  // 3. Fallback to standard 100% (1.0) - No explicit rule saved for this monitor
+  // If the site is configured on other displays, mark hasExplicitRule: true so this monitor
+  // enforces its baseline 100% and does NOT inherit another monitor's leaked zoom.
+  return {
+    zoomFactor: 1.0,
+    source: 'browser_default',
+    hasExplicitRule: isSiteManaged,
+    isSiteManaged
+  };
 }
 
 /**
@@ -173,7 +183,10 @@ async function deleteSiteZoom(siteKey, displayKey) {
   if (!siteZooms[siteKey]) return;
 
   if (displayKey) {
-    delete siteZooms[siteKey][displayKey];
+    const keysToDelete = Array.isArray(displayKey) ? displayKey : [displayKey];
+    keysToDelete.forEach((k) => {
+      delete siteZooms[siteKey][k];
+    });
     // Clean up empty site object
     if (Object.keys(siteZooms[siteKey]).length === 0) {
       delete siteZooms[siteKey];

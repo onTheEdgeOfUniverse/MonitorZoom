@@ -56,9 +56,10 @@ function renderMonitorsList(context) {
   const defaults = context.displayDefaults || {};
 
   displays.forEach((display, index) => {
-    const key = display.id;
-    const isCurrent = key === activeKey;
-    const savedFactor = siteRules[key] || defaults[key] || 1.0;
+    const key = display.id || (display.bounds ? `${(display.name || 'Display').trim()}_${display.bounds.width}x${display.bounds.height}_${display.isPrimary ? 'primary' : 'secondary'}`.toLowerCase().replace(/\s+/g, '_') : 'default_display');
+    const fp = display.bounds ? `${(display.name || 'Display').trim()}_${display.bounds.width}x${display.bounds.height}_${display.isPrimary ? 'primary' : 'secondary'}`.toLowerCase().replace(/\s+/g, '_') : '';
+    const isCurrent = key === activeKey || (fp && fp === activeKey);
+    const savedFactor = siteRules[key] || (fp && siteRules[fp]) || defaults[key] || (fp && defaults[fp]) || 1.0;
 
     const item = document.createElement('div');
     item.className = `monitor-item ${isCurrent ? 'active' : ''}`;
@@ -244,7 +245,7 @@ syncAllBtn.addEventListener('click', async () => {
   const displays = currentContext.displays || [];
 
   for (const display of displays) {
-    const key = display.id;
+    const key = display.id || (display.bounds ? `${(display.name || 'Display').trim()}_${display.bounds.width}x${display.bounds.height}_${display.isPrimary ? 'primary' : 'secondary'}`.toLowerCase().replace(/\s+/g, '_') : 'default_display');
     await new Promise((resolve) => {
       chrome.runtime.sendMessage({
         type: 'SET_TAB_ZOOM',

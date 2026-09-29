@@ -48,6 +48,27 @@ function getDisplayLabel(display, index) {
 }
 
 /**
+ * Formats a display fingerprint into a human-readable display label.
+ * e.g., "dell_u2720q_2560x1440_primary" -> "Dell U2720q (Primary · 2560×1440)"
+ * @param {string} fingerprint
+ * @returns {string}
+ */
+function formatFingerprintName(fingerprint) {
+  if (!fingerprint || typeof fingerprint !== 'string') return 'Display';
+  const match = fingerprint.match(/^(.*?)_(\d+x\d+)_(primary|secondary)$/i);
+  if (match) {
+    const rawName = match[1].replace(/_/g, ' ');
+    const name = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+    const res = match[2].replace('x', '×');
+    const isPrimary = match[3].toLowerCase() === 'primary';
+    const tag = isPrimary ? 'Primary' : '';
+    const details = [tag, res].filter(Boolean).join(' · ');
+    return details ? `${name} (${details})` : name;
+  }
+  return fingerprint.replace(/_/g, ' ');
+}
+
+/**
  * Determines which display a given window belongs to using center-point
  * and bounding-box intersection area algorithms.
  *
@@ -134,6 +155,7 @@ if (typeof module !== 'undefined' && module.exports) {
     getDisplayFingerprint,
     getDisplayKey,
     getDisplayLabel,
+    formatFingerprintName,
     findDisplayForWindow,
     getAllDisplays
   };

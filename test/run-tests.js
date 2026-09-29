@@ -8,6 +8,7 @@ const {
   getDisplayFingerprint,
   getDisplayKey,
   getDisplayLabel,
+  formatFingerprintName,
   findDisplayForWindow
 } = require('../background/display-manager.js');
 
@@ -176,6 +177,14 @@ test('Generates consistent display fingerprint and label', () => {
   assert.strictEqual(label, 'LG UltraFine (Primary · 3840×2160)');
 });
 
+test('Formats display fingerprint into human-readable display label', () => {
+  const formatted = formatFingerprintName('lg_ultrafine_3840x2160_primary');
+  assert.strictEqual(formatted, 'Lg ultrafine (Primary · 3840×2160)');
+
+  const secondary = formatFingerprintName('dell_4k_monitor_3840x2160_secondary');
+  assert.strictEqual(secondary, 'Dell 4k monitor (3840×2160)');
+});
+
 // -------------------------------------------------------------
 // Test 5: Echo Zoom Suppression
 // -------------------------------------------------------------
@@ -269,6 +278,19 @@ const storageManager = require('../background/storage-manager.js');
     assert.strictEqual(externalStillExists.zoomFactor, 1.50);
   });
 
+  await test('Deleting site rule with an array of alias keys removes all matching aliases', async () => {
+    await storageManager.saveSiteZoom('gitlab.com', 'disp-alias-1', 1.25);
+    await storageManager.saveSiteZoom('gitlab.com', 'disp-alias-2', 1.25);
+    await storageManager.saveSiteZoom('gitlab.com', 'disp-other', 1.50);
+
+    await storageManager.deleteSiteZoom('gitlab.com', ['disp-alias-1', 'disp-alias-2']);
+
+    const all = await storageManager.getAllSiteZooms();
+    assert.strictEqual(all['gitlab.com']['disp-alias-1'], undefined);
+    assert.strictEqual(all['gitlab.com']['disp-alias-2'], undefined);
+    assert.strictEqual(all['gitlab.com']['disp-other'], 1.50);
+  });
+
   await test('Export and import configuration restores all data properly', async () => {
     const backupJson = await storageManager.exportConfiguration();
     assert.strictEqual(typeof backupJson, 'string');
@@ -293,12 +315,22 @@ const storageManager = require('../background/storage-manager.js');
   console.log('\nTesting Apply Once Per Site Navigation & Difference-Only Logic:');
 
   // Setup tab/window/display state for testing applyMonitorZoomToTab
+  const testWindowState = {
+    id: 201,
+    left: 100,
+    top: 100,
+    width: 1200,
+    height: 800,
+    focused: true
+  };
+
   const testTabState = {
     id: 101,
     url: 'https://github.com/torvalds',
     windowId: 201,
     zoomFactor: 1.0,
-    zoomSettings: null
+    zoomSettings: null,
+    active: true
   };
 
   let setZoomCallCount = 0;
@@ -306,7 +338,12 @@ const storageManager = require('../background/storage-manager.js');
   global.chrome.tabs = {
     get: (id, cb) => {
       if (id === testTabState.id) {
-        cb({ id: testTabState.id, url: testTabState.url, windowId: testTabState.windowId });
+        cb({
+          id: testTabState.id,
+          url: testTabState.url,
+          windowId: testTabState.windowId,
+          active: testTabState.active !== false
+        });
       } else {
         cb(null);
       }
@@ -327,8 +364,7 @@ const storageManager = require('../background/storage-manager.js');
 
   global.chrome.windows = {
     get: (id, cb) => {
-      // Window on Laptop Display (bounds: 0, 0, 1920, 1080)
-      cb({ id: 201, left: 100, top: 100, width: 1200, height: 800 });
+      cb({ ...testWindowState });
     }
   };
 
@@ -427,9 +463,9 @@ const storageManager = require('../background/storage-manager.js');
     await storageManager.saveSiteZoom('stackoverflow.com', 'display-external-4k', 1.50);
 
     // Change window coordinates to 4K monitor (left: 2000)
-    global.chrome.windows.get = (id, cb) => {
-      cb({ id: 201, left: 2000, top: 100, width: 1400, height: 900 });
-    };
+    testWindowState.left = 2000;
+    testWindowState.width = 1400;
+    testWindowState.height = 900;
 
     const res = await zoomManager.applyMonitorZoomToTab(testTabState.id, testTabState.windowId);
     assert.strictEqual(res.applied, true);
@@ -441,9 +477,9 @@ const storageManager = require('../background/storage-manager.js');
 
   await test('Unmanaged site with no custom rule is left untouched on site load', async () => {
     // Window on display-laptop (which has NO display default set)
-    global.chrome.windows.get = (id, cb) => {
-      cb({ id: 201, left: 100, top: 100, width: 1200, height: 800 });
-    };
+    testWindowState.left = 100;
+    testWindowState.width = 1200;
+    testWindowState.height = 800;
 
     // Navigate to a completely unmanaged site: wikipedia.org (no rule saved)
     testTabState.url = 'https://wikipedia.org/wiki/Main_Page';
@@ -488,6 +524,127 @@ const storageManager = require('../background/storage-manager.js');
 
     // Restore setting
     await storageManager.saveSettings({ applyOnSiteLoad: true });
+  });
+
+  // -------------------------------------------------------------
+  // Test 8: Cross-Monitor Isolation & Passive Echo Discarding
+  // -------------------------------------------------------------
+  console.log('\nTesting Cross-Monitor Isolation & Passive Echo Discarding:');
+
+  await test('Eagerly sets scope: per-tab on managed sites to isolate from Chrome native cross-tab sync', async () => {
+    testTabState.url = 'https://github.com/torvalds';
+    testTabState.zoomFactor = 1.25; // Matches target, so setZoom will not be called
+    testTabState.zoomSettings = null;
+
+    await zoomManager.applyMonitorZoomToTab(testTabState.id, testTabState.windowId);
+
+    assert.deepStrictEqual(testTabState.zoomSettings, { scope: 'per-tab', mode: 'automatic' });
+  });
+
+  await test('Site with custom rule on monitor enforces baseline default (1.0) on unconfigured laptop display', async () => {
+    // Configure special-site.com on 4K display to 1.50
+    await storageManager.saveSiteZoom('special-site.com', 'display-external-4k', 1.50);
+
+    // Place window on Laptop Display
+    testWindowState.left = 100;
+    testWindowState.top = 100;
+
+    // Simulate tab currently at 1.50 because of Chrome per-origin cross-monitor leak
+    testTabState.url = 'https://special-site.com/docs';
+    testTabState.zoomFactor = 1.50;
+
+    const res = await zoomManager.applyMonitorZoomToTab(testTabState.id, testTabState.windowId);
+
+    // Should detect that special-site.com is managed and enforce 1.0 on laptop!
+    assert.strictEqual(res.applied, true);
+    assert.strictEqual(testTabState.zoomFactor, 1.0);
+    assert.strictEqual(res.zoomFactor, 1.0);
+  });
+
+  await test('handleTabZoomChanged discards zoom changes if window is unfocused (passive Chrome cross-window echo)', async () => {
+    // Save rule for laptop display as 1.10
+    await storageManager.saveSiteZoom('focused-test.com', 'display-laptop', 1.10);
+
+    testTabState.url = 'https://focused-test.com/home';
+    testTabState.active = true;
+    testWindowState.focused = false; // Background window!
+
+    // Chrome fires onZoomChange with 1.50 (echo from focused external monitor)
+    await zoomManager.handleTabZoomChanged({
+      tabId: testTabState.id,
+      oldZoomFactor: 1.10,
+      newZoomFactor: 1.50
+    });
+
+    // Rule in storage must NOT be overwritten!
+    const effective = await storageManager.getEffectiveZoom('focused-test.com', 'display-laptop');
+    assert.strictEqual(effective.zoomFactor, 1.10);
+  });
+
+  await test('handleTabZoomChanged discards zoom changes if tab is not active', async () => {
+    // Save rule for laptop display as 1.10
+    await storageManager.saveSiteZoom('active-tab-test.com', 'display-laptop', 1.10);
+
+    testTabState.url = 'https://active-tab-test.com/home';
+    testTabState.active = false; // Background inactive tab!
+    testWindowState.focused = true;
+
+    // Chrome fires onZoomChange with 1.75
+    await zoomManager.handleTabZoomChanged({
+      tabId: testTabState.id,
+      oldZoomFactor: 1.10,
+      newZoomFactor: 1.75
+    });
+
+    // Rule in storage must NOT be overwritten!
+    const effective = await storageManager.getEffectiveZoom('active-tab-test.com', 'display-laptop');
+    assert.strictEqual(effective.zoomFactor, 1.10);
+  });
+
+  await test('handleTabZoomChanged persists user manual zoom when tab is active AND window is focused', async () => {
+    testTabState.url = 'https://active-tab-test.com/home';
+    testTabState.active = true;
+    testWindowState.focused = true; // Active & focused!
+
+    // User presses Ctrl + Plus to zoom to 1.25
+    await zoomManager.handleTabZoomChanged({
+      tabId: testTabState.id,
+      oldZoomFactor: 1.10,
+      newZoomFactor: 1.25
+    });
+
+    // Rule in storage SHOULD be updated to 1.25!
+    const effective = await storageManager.getEffectiveZoom('active-tab-test.com', 'display-laptop');
+    assert.strictEqual(effective.zoomFactor, 1.25);
+  });
+
+  await test('Switching focus between windows on different monitors applies monitor-specific zoom', async () => {
+    // Configure multiscreen-site.com: 1.50 on 4K monitor, 1.10 on Laptop
+    await storageManager.saveSiteZoom('multiscreen-site.com', 'display-external-4k', 1.50);
+    await storageManager.saveSiteZoom('multiscreen-site.com', 'display-laptop', 1.10);
+
+    // Window 1 on 4K monitor (left: 2000)
+    testWindowState.left = 2000;
+    testWindowState.width = 1400;
+    testWindowState.height = 900;
+    testTabState.url = 'https://multiscreen-site.com/app';
+    testTabState.zoomFactor = 1.0;
+
+    let res = await zoomManager.applyMonitorZoomToTab(testTabState.id, testTabState.windowId);
+    assert.strictEqual(res.applied, true);
+    assert.strictEqual(testTabState.zoomFactor, 1.50);
+
+    // Now switch focus to Window 2 on Laptop (left: 100)
+    testWindowState.left = 100;
+    testWindowState.width = 1200;
+    testWindowState.height = 800;
+
+    // Simulate tab currently at 1.50 from previous monitor
+    testTabState.zoomFactor = 1.50;
+
+    res = await zoomManager.applyMonitorZoomToTab(testTabState.id, testTabState.windowId);
+    assert.strictEqual(res.applied, true);
+    assert.strictEqual(testTabState.zoomFactor, 1.10);
   });
 
   // -------------------------------------------------------------

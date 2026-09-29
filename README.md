@@ -44,7 +44,7 @@ Click the MonitorZoom toolbar icon on any website:
 
 ### 2. Options & Management Dashboard
 Right-click the extension icon and choose **Options** (or click the gear icon in the popup):
-- **Saved Site Rules**: Searchable table of all sites with custom zoom settings per monitor; easily delete or inspect entries.
+- **Saved Site Rules**: Deduplicated, multi-column matrix table where each website domain appears on a single row with dedicated columns for each connected display; support for inline zoom adjustments, individual display rule deletion, and list view toggle.
 - **Monitor Defaults**: Set a default zoom factor for each monitor to automatically scale new websites you haven't visited before.
 - **General Settings**:
   - Toggle extension on/off.
